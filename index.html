@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MMC · 应收账款雷达</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --green:#12413F; --green-deep:#0B2E2C; --green-line:#20544F;
+    --gold:#BDAF94; --gold-deep:#9A8A6E; --white:#FFFFFF; --muted:rgba(255,255,255,.6);
+    --line:rgba(189,175,148,.22);
+    --surface:rgba(255,255,255,.035);
+    --ok:#4FBE86; --amber:#E0A53A; --red:#E86B57;
+    --font-latin:"Jost","Noto Sans SC",sans-serif;
+    --font-cjk:"Noto Sans SC",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:var(--font-cjk); color:var(--white); min-height:100vh;
+    background:
+      radial-gradient(60% 50% at 22% 0%, #16514D 0%, transparent 60%),
+      radial-gradient(120% 90% at 50% 120%, var(--green) 0%, var(--green-deep) 70%) fixed;
+  }
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;z-index:0;
+    background-image:radial-gradient(rgba(189,175,148,.15) 1px, transparent 1px);
+    background-size:26px 26px;}
+  .wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:0 28px 30px}
+  .header{padding:60px 0 38px;text-align:center}
+  .kicker{font-family:var(--font-latin);color:var(--gold);letter-spacing:.32em;font-size:12.5px;font-weight:500;text-transform:uppercase}
+  .mark{width:44px;height:44px;margin:18px auto 6px;display:block}
+  .h-title{font-family:var(--font-latin);font-weight:700;color:var(--white);font-size:clamp(34px,5.2vw,52px);line-height:1.05;margin:6px 0 0}
+  .h-title b{font-family:var(--font-cjk);font-weight:900}
+  .tagline{margin-top:18px;color:var(--gold);font-size:15px;letter-spacing:.14em}
+  .desc{max-width:610px;margin:20px auto 0;line-height:1.9;color:var(--muted);font-size:15px}
+  .kw{display:inline-block;padding:1px 9px;margin:0 1px;font-weight:700;border-radius:4px}
+  .kw.on-white{background:var(--white);color:var(--green)}
+  .kw.on-gold{background:var(--gold);color:var(--green)}
+  h2{font-family:var(--font-latin);color:var(--gold);font-size:15px;font-weight:600;margin:0 0 12px;letter-spacing:.06em}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:26px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card .lbl{color:var(--gold);font-size:12px;letter-spacing:.08em;margin-bottom:8px}
+  .card .val{font-size:26px;font-weight:700;font-family:var(--font-latin)}
+  .card .val.sm{font-size:22px}
+  .card.warn .val{color:var(--amber)}
+  .card.bad .val{color:var(--red)}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:22px}
+  textarea{width:100%;height:120px;background:rgba(0,0,0,.22);color:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;font-family:ui-monospace,monospace;font-size:13px;resize:vertical}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  button{font-family:var(--font-latin);background:linear-gradient(var(--gold),var(--gold-deep));color:var(--green);border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;letter-spacing:.04em}
+  button.ghost{background:transparent;color:var(--gold);border:1px solid var(--gold)}
+  button:hover{opacity:.9}
+  .map{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+  .map label{display:block;color:var(--gold);font-size:12px;margin-bottom:4px}
+  select,input.co{width:100%;background:rgba(0,0,0,.22);color:#fff;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{color:var(--gold);text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap;letter-spacing:.04em}
+  td{padding:11px 10px;border-bottom:1px solid rgba(255,255,255,.06)}
+  tr:hover td{background:rgba(189,175,148,.06)}
+  .light{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .g{background:var(--ok)} .a{background:var(--amber)} .r-l{background:var(--red)}
+  .tag{font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap}
+  .tag.g{background:rgba(79,190,134,.16);color:var(--ok)}
+  .tag.a{background:rgba(224,165,58,.16);color:var(--amber)}
+  .tag.r{background:rgba(232,107,87,.16);color:var(--red)}
+  .num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-latin)}
+  .score{font-weight:700;color:var(--gold)}
+  .co-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:8px}
+  .co-grid .lbl{color:var(--gold);font-size:11px;margin-bottom:4px}
+  .muted{color:var(--muted);font-size:12px}
+  .empty{color:rgba(255,255,255,.4);text-align:center;padding:40px}
+  .filterbar{display:flex;gap:8px;margin-bottom:12px}
+  .chip{cursor:pointer;font-size:12px;padding:5px 12px;border-radius:14px;border:1px solid var(--line);color:rgba(255,255,255,.7)}
+  .chip.on{background:var(--gold);color:var(--green);border-color:var(--gold);font-weight:700}
+  .hint{color:rgba(255,255,255,.45);font-size:12px;margin-top:6px}
+  .viewtabs{display:flex;gap:8px;margin-bottom:14px}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
+  .modal-bg.on{display:flex}
+  .modal{background:#0F3A38;border:1px solid var(--gold);border-radius:16px;padding:24px 26px;width:580px;max-width:92vw;max-height:88vh;overflow:auto}
+  .modal h3{font-family:var(--font-latin);color:var(--gold);font-size:17px;margin-bottom:4px}
+  .modal .who{color:var(--muted);font-size:12px;margin-bottom:16px}
+  .tones{display:flex;gap:8px;margin-bottom:14px}
+  .msgbox{background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:8px;padding:16px 18px;font-size:14px;line-height:1.85;white-space:pre-wrap;min-height:150px}
+  .modal .actions{display:flex;gap:12px;margin-top:18px;justify-content:flex-end}
+  .aihint{color:rgba(255,255,255,.42);font-size:11px;margin-top:12px;line-height:1.6}
+  .btn-sm{padding:5px 12px;font-size:12px}
+  .footer{padding:32px 0 18px}
+  .notch{display:flex;align-items:center;gap:16px;color:var(--gold);font-family:var(--font-latin);font-size:11.5px;letter-spacing:.24em;text-transform:uppercase}
+  .notch .bar{flex:1;height:1px;background:var(--gold);position:relative;opacity:.7}
+  .notch .bar::after{content:"";position:absolute;right:0;top:-4px;width:1px;height:9px;background:var(--gold)}
+  .notch .bar.left::after{left:0;right:auto}
+  .copy{text-align:center;margin-top:20px;font-size:14px;color:var(--gold)}
+  .copy b{color:var(--white);font-weight:700}
+  .copy .sub{display:block;margin-top:6px;font-size:11.5px;color:var(--muted);letter-spacing:.2em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="header">
+    <div class="kicker">MMC × AI · 应收账款雷达</div>
+    <svg class="mark" viewBox="0 0 48 48" fill="none">
+      <path d="M6 30 L18 40 L42 8" stroke="url(#g)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M34 8 H42 V16" stroke="url(#g)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <defs><linearGradient id="g" x1="6" y1="8" x2="42" y2="40">
+        <stop stop-color="#D8CBA9"/><stop offset="1" stop-color="#9A8A6E"/>
+      </linearGradient></defs>
+    </svg>
+    <h1 class="h-title">应收账款<b>雷达</b></h1>
+    <div class="tagline">自动盯账期 · 排催收优先级 · 现金流不再卡死</div>
+    <p class="desc">把每一笔应收的到期日、逾期天数与坏账风险一屏看穿——今天该<span class="kw on-gold">先催谁</span>、催收<span class="kw on-white">话术</span>怎么写，AI 都帮你排好。</p>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="panel">
+    <h2>① 导入应收账款表</h2>
+    <div class="muted">直接从 Excel 复制整块数据（含表头）粘贴到下方，或点"载入示例"看效果。</div>
+    <textarea id="paste" placeholder="客户	发票号	开票日	到期日	金额	已收
+鱼丸豆腐		INV-001	2026-04-10	2026-05-10	50000	0
+..."></textarea>
+    <div class="row">
+      <button onclick="parsePaste()">解析</button>
+      <button class="ghost" onclick="loadSample()">载入示例</button>
+      <button class="ghost" onclick="clearAll()">清空全部</button>
+    </div>
+    <div id="mapArea"></div>
+  </div>
+
+  <div class="panel">
+    <h2>② 逾期系数（越拖越急，可调）</h2>
+    <div class="muted">优先级分 = 未收金额 × 逾期系数。系数按逾期阶梯放大，越拖坏账概率越高。</div>
+    <div class="co-grid" id="coGrid"></div>
+    <div class="hint">改完自动重算。默认：未到期0 · 1-30天×1 · 31-60天×2 · 61-90天×4 · 90天以上×8</div>
+  </div>
+
+  <div class="panel">
+    <h2>③ 催收雷达 — 今天先催谁</h2>
+    <div class="viewtabs" id="viewtabs"></div>
+    <div class="filterbar" id="filters"></div>
+    <div id="tableArea"></div>
+  </div>
+
+  <footer class="footer">
+    <div class="notch">
+      <span>MMC × AI</span>
+      <span class="bar left"></span>
+      <span class="bar"></span>
+      <span>2026</span>
+    </div>
+    <div class="copy">
+      © <b>MMC Financial Planning</b> · 应收账款雷达
+    </div>
+  </footer>
+
+</div>
+
+  <div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <h3>催收话术</h3>
+      <div class="who" id="mWho"></div>
+      <div class="tones" id="mTones"></div>
+      <div class="msgbox" id="mMsg"></div>
+      <div id="aiStatus" class="aihint"></div>
+      <div class="aihint">切换语气会重置为本地模板。点「✨ AI 智能生成」让 Claude 结合欠款金额、逾期天数与发票明细，润色成更自然、更有分寸的话术。</div>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--gold);font-size:12px">⚙ Claude API 设置（仅本地测试用）</summary>
+        <input class="co" id="apiKeyInput" type="password" placeholder="粘贴 Anthropic API Key（sk-ant-...）" style="margin-top:8px" oninput="saveKey(this.value)">
+        <div class="aihint">⚠️ 密钥只存在你本机浏览器（localStorage），会暴露在前端——仅供你自己测试用。正式上线务必改走 Vercel serverless 代理，把密钥藏在后端，前端永远拿不到。</div>
+      </details>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+        <span style="color:var(--gold);font-size:12px;white-space:nowrap">客户 WhatsApp</span>
+        <input class="co" id="waPhone" placeholder="如 012-3456789" oninput="setPhone(curMsgCustomer,this.value)" style="flex:1">
+      </div>
+      <div class="actions">
+        <button class="ghost" onclick="closeModal()">关闭</button>
+        <button class="ghost" id="aiBtn" onclick="aiGenerate()">✨ AI 智能生成</button>
+        <button class="ghost" onclick="copyMsg(this)">复制</button>
+        <button onclick="sendWhatsApp()" style="background:#25D366;color:#053b1e">发送 WhatsApp</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="payBg" onclick="if(event.target===this)closePay()">
+    <div class="modal" style="width:420px">
+      <h3>收款登记</h3>
+      <div class="who" id="pWho"></div>
+      <div style="margin:4px 0 12px">
+        <label style="color:var(--gold);font-size:12px;display:block;margin-bottom:6px">本次收款金额（RM）</label>
+        <input class="co" id="payAmt" type="number" step="1">
+      </div>
+      <div class="aihint">确认后累加到「已收」。收满即自动结清并沉底，不再进催收清单。</div>
+      <div class="actions">
+        <button class="ghost" onclick="closePay()">取消</button>
+        <button class="ghost" onclick="payFull()">全额收清</button>
+        <button onclick="confirmPay()">确认收款</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const KEY='ar_radar_v1';
+let DB=JSON.parse(localStorage.getItem(KEY)||'null')||{records:[],coef:{t0:0,t30:1,t60:2,t90:4,t90p:8},contacts:{}};
+if(!DB.contacts)DB.contacts={};
+let FILTER='all';
+let VIEW='invoice';
+let CUSTLIST=[];
+let pendingRows=null;
+let curMsgCustomer=null, curTone='standard';
+let APIKEY=localStorage.getItem('ar_apikey')||'';
+
+function save(){localStorage.setItem(KEY,JSON.stringify(DB))}
+function todayD(){const d=new Date();d.setHours(0,0,0,0);return d}
+function parseDate(s){if(!s)return null;s=String(s).trim().replace(/\//g,'-').replace(/\./g,'-');const m=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);if(!m)return null;return new Date(+m[1],+m[2]-1,+m[3])}
+function fmtD(d){if(!d)return'—';return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function num(x){const n=parseFloat(String(x).replace(/RM/ig,'').replace(/[,¥$，\s]/g,''));return isNaN(n)?0:n}
+function money(n){return (n<0?'-':'')+'RM '+Math.abs(Math.round(n)).toLocaleString()}
+function daysBetween(a,b){return Math.round((a-b)/86400000)}
+
+// 逾期天数：今天 - 到期日；>0 = 已逾期
+function overdueDays(rec){const due=parseDate(rec.due);if(!due)return 0;return daysBetween(todayD(),due)}
+function unpaid(rec){return Math.max(0,num(rec.amount)-num(rec.paid))}
+
+function coef(od){const c=DB.coef;if(od<=0)return c.t0;if(od<=30)return c.t30;if(od<=60)return c.t60;if(od<=90)return c.t90;return c.t90p}
+function priority(rec){return unpaid(rec)*coef(overdueDays(rec))}
+
+// 健康度：🟢未到期 🟡逾期1-60 🔴逾期>60（当期信号，历史数据留待后续）
+function healthFromOd(od){if(od<=0)return{k:'green',t:'健康',c:'g'};if(od<=60)return{k:'amber',t:'关注',c:'a'};return{k:'red',t:'风险',c:'r'}}
+function health(rec){if(unpaid(rec)<=0)return{k:'paid',t:'已结清',c:'g'};return healthFromOd(overdueDays(rec))}
+const FMAP={red:'r',amber:'a',green:'g'};
+function aging(od){if(od<=0)return'未到期';if(od<=30)return'1-30天';if(od<=60)return'31-60天';if(od<=90)return'61-90天';return'90天以上'}
+
+function renderCards(){
+  const recs=DB.records;
+  const total=recs.reduce((s,r)=>s+unpaid(r),0);
+  const overdue=recs.filter(r=>overdueDays(r)>0).reduce((s,r)=>s+unpaid(r),0);
+  const t=todayD();
+  const weekEnd=new Date(t);weekEnd.setDate(t.getDate()+7);
+  const dueWeek=recs.filter(r=>{const d=parseDate(r.due);return d&&d>=t&&d<=weekEnd&&unpaid(r)>0}).reduce((s,r)=>s+unpaid(r),0);
+  const bad=recs.filter(r=>overdueDays(r)>90).reduce((s,r)=>s+unpaid(r),0);
+  document.getElementById('cards').innerHTML=`
+    <div class="card"><div class="lbl">总应收未收</div><div class="val sm">${money(total)}</div></div>
+    <div class="card warn"><div class="lbl">已逾期</div><div class="val sm">${money(overdue)}</div></div>
+    <div class="card"><div class="lbl">本周内到期</div><div class="val sm">${money(dueWeek)}</div></div>
+    <div class="card bad"><div class="lbl">预计坏账（逾期90天+）</div><div class="val sm">${money(bad)}</div></div>`;
+}
+
+function renderCoef(){
+  const c=DB.coef;const fields=[['t0','未到期'],['t30','1-30天'],['t60','31-60天'],['t90','61-90天'],['t90p','90天以上']];
+  document.getElementById('coGrid').innerHTML=fields.map(([k,l])=>
+    `<div><div class="lbl">${l}</div><input class="co" type="number" step="0.5" value="${c[k]}" oninput="setCoef('${k}',this.value)"></div>`).join('');
+}
+function setCoef(k,v){DB.coef[k]=num(v);save();renderAll()}
+
+function renderFilters(){
+  const counts={all:DB.records.length,red:0,amber:0,green:0};
+  DB.records.forEach(r=>{const h=health(r);if(h.k==='red')counts.red++;else if(h.k==='amber')counts.amber++;else if(h.k==='green')counts.green++});
+  const defs=[['all','全部'],['red','🔴 风险'],['amber','🟡 关注'],['green','🟢 健康']];
+  document.getElementById('filters').innerHTML=defs.map(([k,l])=>
+    `<span class="chip ${FILTER===k?'on':''}" onclick="setFilter('${k}')">${l} ${counts[k]||0}</span>`).join('');
+}
+function setFilter(k){FILTER=k;renderFilters();renderTable()}
+
+function renderViewTabs(){
+  const defs=[['invoice','按发票'],['customer','按客户']];
+  document.getElementById('viewtabs').innerHTML=defs.map(([k,l])=>
+    `<span class="chip ${VIEW===k?'on':''}" onclick="setView('${k}')">${l}</span>`).join('');
+}
+function setView(k){VIEW=k;renderViewTabs();renderTable()}
+
+function renderTable(){VIEW==='customer'?renderCustomerTable():renderInvoiceTable()}
+
+function renderInvoiceTable(){
+  let recs=DB.records.map((r,i)=>({...r,_i:i}));
+  if(FILTER!=='all')recs=recs.filter(r=>health(r).k===FILTER);
+  // 已结清沉底；其余按优先级分降序（这就是"今天先催谁"）
+  recs.sort((a,b)=>{const pa=unpaid(a)<=0?-1:priority(a),pb=unpaid(b)<=0?-1:priority(b);return pb-pa});
+  if(!recs.length){document.getElementById('tableArea').innerHTML='<div class="empty">还没有数据，粘贴应收表或点"载入示例"。</div>';return}
+  let rows=recs.map(r=>{
+    const od=overdueDays(r),h=health(r),up=unpaid(r),pr=priority(r);
+    const odTxt=up<=0?'—':(od>0?`逾期 ${od} 天`:`还有 ${-od} 天`);
+    const act=up<=0?'':`<button class="btn-sm" onclick="openPay(${r._i})">收款</button> <button class="btn-sm" onclick="openMsgInv(${r._i})">话术</button> `;
+    return `<tr>
+      <td><span class="light ${h.c==='g'?'g':h.c==='a'?'a':'r-l'}"></span>${r.customer||'—'}</td>
+      <td class="muted">${r.invoice||'—'}</td>
+      <td>${fmtD(parseDate(r.due))}</td>
+      <td>${odTxt}</td>
+      <td><span class="tag ${h.c}">${aging(od)}</span></td>
+      <td class="num">${money(up)}</td>
+      <td class="num score">${up<=0?'—':Math.round(pr).toLocaleString()}</td>
+      <td><span class="tag ${h.c}">${h.t}</span></td>
+      <td style="white-space:nowrap">${act}<button class="ghost btn-sm" onclick="delRec(${r._i})">删</button></td>
+    </tr>`}).join('');
+  document.getElementById('tableArea').innerHTML=`<table>
+    <thead><tr><th>客户</th><th>发票号</th><th>到期日</th><th>状态</th><th>账龄</th><th class="num">未收</th><th class="num">优先级分</th><th>健康度</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+// ---- 客户维度汇总 ----
+function customerSummary(){
+  const map={};
+  DB.records.forEach(r=>{
+    if(unpaid(r)<=0)return;
+    const key=r.customer||'（未命名）';
+    if(!map[key])map[key]={customer:key,unpaid:0,count:0,worstOd:-99999,priority:0};
+    const m=map[key];
+    m.unpaid+=unpaid(r);m.count++;m.priority+=priority(r);m.worstOd=Math.max(m.worstOd,overdueDays(r));
+  });
+  return Object.values(map);
+}
+function renderCustomerTable(){
+  let list=customerSummary();
+  if(FILTER!=='all')list=list.filter(m=>healthFromOd(m.worstOd).c===FMAP[FILTER]);
+  list.sort((a,b)=>b.priority-a.priority);
+  CUSTLIST=list;
+  if(!list.length){document.getElementById('tableArea').innerHTML='<div class="empty">没有未收款的客户。</div>';return}
+  let rows=list.map((m,i)=>{
+    const h=healthFromOd(m.worstOd);
+    const odTxt=m.worstOd>0?`逾期 ${m.worstOd} 天`:`未逾期`;
+    return `<tr>
+      <td><span class="light ${h.c==='g'?'g':h.c==='a'?'a':'r-l'}"></span>${m.customer}</td>
+      <td class="num">${m.count} 笔</td>
+      <td class="num">${money(m.unpaid)}</td>
+      <td>${odTxt}</td>
+      <td class="num score">${Math.round(m.priority).toLocaleString()}</td>
+      <td><span class="tag ${h.c}">${h.t}</span></td>
+      <td><button class="btn-sm" onclick="openMsgCust(${i})">生成话术</button></td>
+    </tr>`}).join('');
+  document.getElementById('tableArea').innerHTML=`<table>
+    <thead><tr><th>客户</th><th class="num">未收发票</th><th class="num">总未收</th><th>最长逾期</th><th class="num">优先级分</th><th>健康度</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function delRec(i){DB.records.splice(i,1);save();renderAll()}
+function clearAll(){if(!confirm('清空全部应收记录？'))return;DB.records=[];save();renderAll()}
+
+// ---- 粘贴解析 + 列映射（人工确认，money 零容忍误判）----
+function parsePaste(){
+  const raw=document.getElementById('paste').value.trim();
+  if(!raw){alert('先粘贴数据');return}
+  const delim=raw.includes('\t')?'\t':',';
+  const lines=raw.split(/\r?\n/).filter(l=>l.trim());
+  const rows=lines.map(l=>l.split(delim).map(c=>c.trim()));
+  const headers=rows[0];const body=rows.slice(1);
+  pendingRows={headers,body};
+  renderMapping(headers);
+}
+function guess(headers,keys){for(let i=0;i<headers.length;i++){const h=headers[i].toLowerCase();if(keys.some(k=>h.includes(k)))return i}return -1}
+function renderMapping(headers){
+  const opts=idx=>headers.map((h,i)=>`<option value="${i}" ${i===idx?'selected':''}>${h||'第'+(i+1)+'列'}</option>`).join('');
+  const g={customer:guess(headers,['客户','公司','名称','name','customer','client']),invoice:guess(headers,['发票','单号','invoice','no','编号']),due:guess(headers,['到期','due']),date:guess(headers,['开票','日期','date']),amount:guess(headers,['金额','应收','总额','amount','total']),paid:guess(headers,['已收','已付','paid','received']),phone:guess(headers,['电话','手机','联系','号码','phone','tel','contact','whatsapp','wa'])};
+  document.getElementById('mapArea').innerHTML=`
+    <div class="hint" style="margin-top:16px">已自动识别列，请确认后导入（钱不能错，务必核对）：</div>
+    <div class="map">
+      <div><label>客户</label><select id="m_customer">${opts(g.customer)}</select></div>
+      <div><label>发票号（可选）</label><select id="m_invoice"><option value="-1">无</option>${opts(g.invoice).replace(`value="${g.invoice}"`,`value="${g.invoice}" selected`)}</select></div>
+      <div><label>到期日 *</label><select id="m_due">${opts(g.due)}</select></div>
+      <div><label>金额 *</label><select id="m_amount">${opts(g.amount)}</select></div>
+      <div><label>已收（可选，默认0）</label><select id="m_paid"><option value="-1">无（默认0）</option>${opts(g.paid).replace(`value="${g.paid}"`,`value="${g.paid}" selected`)}</select></div>
+      <div><label>WhatsApp（可选）</label><select id="m_phone"><option value="-1">无</option>${opts(g.phone).replace(`value="${g.phone}"`,`value="${g.phone}" selected`)}</select></div>
+    </div>
+    <div class="row"><button onclick="doImport()">确认导入 ${pendingRows.body.length} 条</button></div>`;
+}
+function doImport(){
+  const gi=id=>parseInt(document.getElementById(id).value);
+  const ci=gi('m_customer'),ii=gi('m_invoice'),di=gi('m_due'),ai=gi('m_amount'),pi=gi('m_paid'),phi=gi('m_phone');
+  const added=pendingRows.body.map(r=>({
+    customer:r[ci]||'',invoice:ii>=0?(r[ii]||''):'',due:r[di]||'',amount:num(r[ai]),paid:pi>=0?num(r[pi]):0
+  })).filter(r=>r.customer||r.amount);
+  if(phi>=0)pendingRows.body.forEach(r=>{const c=(r[ci]||'').trim(),ph=(r[phi]||'').trim();if(c&&ph)DB.contacts[c]=ph});
+  DB.records=DB.records.concat(added);save();
+  document.getElementById('paste').value='';document.getElementById('mapArea').innerHTML='';pendingRows=null;
+  renderAll();
+}
+
+function loadSample(){
+  const t=todayD();const d=(off)=>{const x=new Date(t);x.setDate(t.getDate()+off);return fmtD(x)};
+  DB.records=[
+    {customer:'鱼丸豆腐',invoice:'INV-001',due:d(-95),amount:50000,paid:0},
+    {customer:'海鲜大排档',invoice:'INV-002',due:d(-70),amount:82000,paid:20000},
+    {customer:'城西火锅',invoice:'INV-003',due:d(-40),amount:35000,paid:0},
+    {customer:'老街茶餐厅',invoice:'INV-004',due:d(-12),amount:80000,paid:0},
+    {customer:'江边烧烤',invoice:'INV-005',due:d(-3),amount:15000,paid:0},
+    {customer:'福满楼',invoice:'INV-006',due:d(5),amount:120000,paid:0},
+    {customer:'一品鲜',invoice:'INV-007',due:d(20),amount:46000,paid:0},
+    {customer:'老王食品',invoice:'INV-008',due:d(-55),amount:8000,paid:8000},
+  ];
+  DB.contacts={'鱼丸豆腐':'012-3456789','海鲜大排档':'013-8765432','福满楼':'016-2223333'};
+  save();renderAll();
+}
+
+// ---- 联系人 / WhatsApp ----
+function getPhone(cust){return DB.contacts[cust]||''}
+function setPhone(cust,v){if(!cust)return;DB.contacts[cust]=String(v).trim();save()}
+// 大马号码规范化：012-3456789 → 60123456789（wa.me 用国际码、无 + 无符号）
+function waNumber(raw){let d=String(raw||'').replace(/\D/g,'');if(!d)return'';if(d.startsWith('60'))return d;if(d.startsWith('0'))return '60'+d.slice(1);return '60'+d}
+function sendWhatsApp(){
+  const raw=document.getElementById('waPhone').value;
+  setPhone(curMsgCustomer,raw);
+  const n=waNumber(raw);
+  if(!n){setAiStatus('请先填写客户 WhatsApp 号码');return}
+  const txt=document.getElementById('mMsg').textContent;
+  window.open('https://wa.me/'+n+'?text='+encodeURIComponent(txt),'_blank');
+}
+
+// ---- 收款登记 ----
+let payIdx=null;
+function openPay(i){
+  payIdx=i;const r=DB.records[i];const up=unpaid(r);
+  document.getElementById('pWho').innerHTML=`${r.customer||'—'} · ${r.invoice||'—'}<br>应收 ${money(num(r.amount))} · 已收 ${money(num(r.paid))} · <b style="color:var(--gold)">未收 ${money(up)}</b>`;
+  document.getElementById('payAmt').value=Math.round(up);
+  document.getElementById('payBg').classList.add('on');
+}
+function payFull(){const r=DB.records[payIdx];document.getElementById('payAmt').value=Math.round(unpaid(r))}
+function closePay(){document.getElementById('payBg').classList.remove('on')}
+function confirmPay(){
+  const r=DB.records[payIdx];const add=num(document.getElementById('payAmt').value);
+  if(add>0){r.paid=Math.min(num(r.amount),num(r.paid)+add);save()}
+  closePay();renderAll();
+}
+
+// ---- 催收话术生成 ----
+const TONES=[['warm','温和'],['standard','标准'],['firm','强硬']];
+function defaultTone(od){if(od<=30)return'warm';if(od<=60)return'standard';return'firm'}
+
+function buildMsg(customer,tone){
+  const recs=DB.records.filter(r=>(r.customer||'（未命名）')===customer&&unpaid(r)>0);
+  if(!recs.length)return'';
+  const total=recs.reduce((s,r)=>s+unpaid(r),0);
+  const count=recs.length;
+  const worstOd=recs.reduce((m,r)=>Math.max(m,overdueDays(r)),-99999);
+  const dues=recs.map(r=>parseDate(r.due)).filter(Boolean).sort((a,b)=>a-b);
+  const dueTxt=dues.length?fmtD(dues[0]):'近期';
+  const amt=money(total);
+  const inv=count>1?`共 ${count} 笔款项`:`一笔款项`;
+  const dueClause=worstOd>0?`已于 ${dueTxt} 到期，目前逾期 ${worstOd} 天`:`将于 ${dueTxt} 到期`;
+  if(tone==='warm')
+    return `${customer} 您好：\n\n感谢贵司一直以来的合作！温馨提醒，贵司${inv}合计 ${amt}，${dueClause}，烦请在方便时安排付款。\n\n如已完成支付请忽略本条信息。有任何问题欢迎随时与我联系，谢谢！`;
+  if(tone==='firm')
+    return `${customer} 您好：\n\n贵司${inv}合计 ${amt} 已逾期 ${worstOd>0?worstOd:0} 天，多次到期仍未收到款项。请于本周内完成付款，或明确回复预计付款日期。\n\n为避免影响双方后续合作及贵司信用记录，恳请尽快处理；若已付款请提供付款凭证。感谢配合，期待您的回复。`;
+  return `${customer} 您好：\n\n关于贵司${inv}合计 ${amt}，${dueClause}，特此提醒。请贵司近期安排付款，并回复确认预计付款时间，以便我们对账。\n\n如款项正在处理中敬请告知。感谢配合！`;
+}
+
+function openMsgInv(i){openMsg(DB.records[i].customer||'（未命名）')}
+function openMsgCust(i){openMsg(CUSTLIST[i].customer)}
+function openMsg(customer){
+  curMsgCustomer=customer;
+  const recs=DB.records.filter(r=>(r.customer||'（未命名）')===customer&&unpaid(r)>0);
+  const worstOd=recs.reduce((m,r)=>Math.max(m,overdueDays(r)),-99999);
+  curTone=defaultTone(worstOd);
+  renderModal();
+}
+function setTone(k){curTone=k;renderModal()}
+function renderModal(){
+  const recs=DB.records.filter(r=>(r.customer||'（未命名）')===curMsgCustomer&&unpaid(r)>0);
+  const total=recs.reduce((s,r)=>s+unpaid(r),0);
+  document.getElementById('mWho').textContent=`${curMsgCustomer} · 未收 ${money(total)} · ${recs.length} 笔发票`;
+  document.getElementById('mTones').innerHTML=TONES.map(([k,l])=>
+    `<span class="chip ${curTone===k?'on':''}" onclick="setTone('${k}')">${l}</span>`).join('');
+  document.getElementById('mMsg').textContent=buildMsg(curMsgCustomer,curTone);
+  document.getElementById('aiStatus').textContent='';
+  document.getElementById('apiKeyInput').value=APIKEY;
+  document.getElementById('waPhone').value=getPhone(curMsgCustomer);
+  document.getElementById('modalBg').classList.add('on');
+}
+function closeModal(){document.getElementById('modalBg').classList.remove('on')}
+
+// ---- Claude API 智能话术 ----
+function saveKey(v){APIKEY=v.trim();localStorage.setItem('ar_apikey',APIKEY)}
+function setAiStatus(t){document.getElementById('aiStatus').textContent=t}
+function custContext(customer){
+  const recs=DB.records.filter(r=>(r.customer||'（未命名）')===customer&&unpaid(r)>0);
+  const total=recs.reduce((s,r)=>s+unpaid(r),0);
+  const worstOd=recs.reduce((m,r)=>Math.max(m,overdueDays(r)),-99999);
+  const lines=recs.map(r=>{const od=overdueDays(r);return `发票${r.invoice||'—'} 到期${fmtD(parseDate(r.due))} 未收${money(unpaid(r))} ${od>0?'已逾期'+od+'天':'还有'+(-od)+'天到期'}`}).join('；');
+  return {count:recs.length,total,worstOd,lines};
+}
+function buildAiPrompt(ctx){
+  const toneLabel={warm:'温和、体谅对方、感谢合作',standard:'专业、标准商务、不卑不亢',firm:'坚定、有紧迫感但不失礼貌，强调对信用与后续合作的影响'}[curTone]||'标准商务';
+  return `你是一位资深的中文应收账款催收专员。请根据以下客户欠款情况，写一条可以直接发送给客户的催款消息。
+
+客户：${curMsgCustomer}
+未收总额：${money(ctx.total)}
+未收发票数：${ctx.count} 笔
+最长逾期：${ctx.worstOd>0?ctx.worstOd+' 天':'尚未逾期'}
+欠款明细：${ctx.lines}
+
+语气要求：${toneLabel}。
+写作要求：使用中文；金额一律用「RM」表示；开头礼貌称呼客户；说清欠款金额与逾期情况；提出明确的付款请求或请对方回复预计付款时间；结尾礼貌得体。不要使用 markdown，不要输出任何解释或标题，直接给出可发送的消息正文。`;
+}
+// 生产：走 /api/collection-msg（密钥藏在 Vercel 后端）；返回 {mode:'ok'|'absent'|'error'}
+async function tryProxy(prompt){
+  try{
+    const r=await fetch('/api/collection-msg',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt})});
+    if(r.status===404) return {mode:'absent'};
+    const d=await r.json().catch(()=>({}));
+    if(r.ok) return {mode:'ok',text:(d.text||'').trim()};
+    return {mode:'error',error:d.error||('代理返回 '+r.status)};
+  }catch(e){ return {mode:'absent'}; }
+}
+async function aiGenerate(){
+  const ctx=custContext(curMsgCustomer);
+  if(!ctx.count){setAiStatus('该客户当前没有未收款');return}
+  const prompt=buildAiPrompt(ctx);
+  const btn=document.getElementById('aiBtn');const ob=btn.textContent;
+  btn.disabled=true;btn.textContent='生成中…';setAiStatus('正在调用 Claude…');
+  const finish=(text,note)=>{ if(text){document.getElementById('mMsg').textContent=text;setAiStatus(note)} else setAiStatus('Claude 未返回内容，已保留本地模板'); };
+  try{
+    // 1) 优先走后端代理（部署到 Vercel 后自动启用，前端不碰密钥）
+    const p=await tryProxy(prompt);
+    if(p.mode==='ok'){ finish(p.text,'✨ 已由 Claude 生成（后端代理）· 切换语气可重新生成'); return; }
+    if(p.mode==='error' && !APIKEY){ setAiStatus('后端代理出错：'+p.error+'（检查 Vercel 环境变量 ANTHROPIC_API_KEY）'); return; }
+    // 2) 本地测试：用粘贴的 Key 直连（仅本地，密钥会暴露）
+    if(!APIKEY){ setAiStatus('未检测到后端代理。本地测试请展开「⚙ Claude API 设置」填入 Key；或部署到 Vercel 后自动走安全代理。'); return; }
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-api-key':APIKEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-opus-4-7',max_tokens:1024,messages:[{role:'user',content:prompt}]})
+    });
+    if(!res.ok){const e=await res.text();throw new Error('HTTP '+res.status+'：'+e.slice(0,200))}
+    const data=await res.json();
+    const text=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+    finish(text,'✨ 已由 Claude 生成（本地直连）· 切换语气可重新生成');
+  }catch(err){
+    setAiStatus('调用失败：'+err.message+'（已保留本地模板）');
+  }finally{
+    btn.disabled=false;btn.textContent=ob;
+  }
+}
+function copyMsg(b){
+  const txt=document.getElementById('mMsg').textContent;
+  const o=b.textContent;const done=()=>{b.textContent='已复制';setTimeout(()=>b.textContent=o,1200)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done).catch(()=>fallbackCopy(txt,done))}
+  else fallbackCopy(txt,done);
+}
+function fallbackCopy(txt,cb){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta);cb&&cb()}
+
+function renderAll(){renderCards();renderCoef();renderViewTabs();renderFilters();renderTable()}
+renderAll();
+</script>
+</body>
+</html>
