@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --green:#12413F; --green-deep:#0B2E2C; --green-line:#20544F;
@@ -122,11 +123,14 @@
     <textarea id="paste" placeholder="客户	发票号	开票日	到期日	金额	已收
 鱼丸豆腐		INV-001	2026-04-10	2026-05-10	50000	0
 ..."></textarea>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.txt" style="display:none" onchange="handleFile(this)">
     <div class="row">
-      <button onclick="parsePaste()">解析</button>
+      <button onclick="document.getElementById('fileInput').click()">📁 上传 Excel / CSV 文件</button>
+      <button class="ghost" onclick="parsePaste()">解析粘贴内容</button>
       <button class="ghost" onclick="loadSample()">载入示例</button>
       <button class="ghost" onclick="clearAll()">清空全部</button>
     </div>
+    <div class="hint" style="margin-top:8px">上传 <b>.xlsx / .xls / .csv</b> 文件，或把数据复制粘贴到上方框里再按「解析粘贴内容」——两种都行。</div>
     <div id="mapArea"></div>
   </div>
 
@@ -362,9 +366,43 @@ function parsePaste(){
   const delim=raw.includes('\t')?'\t':',';
   const lines=raw.split(/\r?\n/).filter(l=>l.trim());
   const rows=lines.map(l=>l.split(delim).map(c=>c.trim()));
-  const headers=rows[0];const body=rows.slice(1);
-  pendingRows={headers,body};
-  renderMapping(headers);
+  ingestRows(rows);
+}
+// 把二维数组交给映射流程（粘贴与文件上传共用）
+function ingestRows(rows){
+  rows=(rows||[]).map(r=>r.map(c=>String(c==null?'':c).trim())).filter(r=>r.some(c=>c!==''));
+  if(rows.length<2){alert('没读到数据：至少要「表头 + 1 行」');return}
+  pendingRows={headers:rows[0],body:rows.slice(1)};
+  renderMapping(rows[0]);
+  const el=document.getElementById('mapArea');if(el)el.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+// 上传 Excel / CSV 文件
+function handleFile(input){
+  const f=input.files&&input.files[0];if(!f){return}
+  const name=f.name.toLowerCase();
+  const isText=name.endsWith('.csv')||name.endsWith('.txt');
+  const reader=new FileReader();
+  reader.onerror=()=>alert('文件读取失败，请重试');
+  reader.onload=e=>{
+    try{
+      let rows;
+      if(isText){
+        const text=String(e.target.result||'');
+        const delim=text.includes('\t')?'\t':',';
+        rows=text.split(/\r?\n/).map(l=>l.split(delim).map(c=>c.trim().replace(/^"|"$/g,'')));
+      }else{
+        if(typeof XLSX==='undefined'){alert('Excel 解析库没加载成功（可能是网络问题）。请刷新页面重试，或改用「复制粘贴 + 解析粘贴内容」。');return}
+        const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        // raw:true 保留真实日期为 Date 对象，避免被格式化成有歧义的 M/D/Y 字符串
+        const raw=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,cellDates:true,defval:''});
+        rows=raw.map(r=>r.map(c=>c instanceof Date?fmtD(new Date(c.getTime()-c.getTimezoneOffset()*60000)):c));
+      }
+      ingestRows(rows);
+    }catch(err){alert('解析失败：'+(err&&err.message||err))}
+  };
+  if(isText)reader.readAsText(f,'utf-8');else reader.readAsArrayBuffer(f);
+  input.value='';
 }
 // 列名打分：精确相等 > 开头/结尾 > 包含。权重用来在同义词里排优先级
 const FIELD_SPECS={
