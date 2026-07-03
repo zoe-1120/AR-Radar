@@ -117,7 +117,8 @@
 
   <div class="panel">
     <h2>① 导入应收账款表</h2>
-    <div class="muted">直接从 Excel 复制整块数据（含表头）粘贴到下方，或点"载入示例"看效果。</div>
+    <div class="muted">直接从 Excel / 会计软件导出的账龄表复制整块数据（<b>含表头</b>）粘贴到下方，或点"载入示例"看效果。表里有很多杂列也没关系——系统会<b>自动认列</b>，中英文表头都行（SQL Account / AutoCount / Xero / QuickBooks 皆可）。</div>
+    <div class="hint" style="margin-top:6px">必需：<b>客户</b> · <b>到期日</b> · <b>金额</b>（或「未收 / Outstanding」）。可选：发票号 · 已收 · WhatsApp电话。识别不准可在下方手动改，钱不能错——务必核对。</div>
     <textarea id="paste" placeholder="客户	发票号	开票日	到期日	金额	已收
 鱼丸豆腐		INV-001	2026-04-10	2026-05-10	50000	0
 ..."></textarea>
@@ -213,7 +214,25 @@ let APIKEY=localStorage.getItem('ar_apikey')||'';
 
 function save(){localStorage.setItem(KEY,JSON.stringify(DB))}
 function todayD(){const d=new Date();d.setHours(0,0,0,0);return d}
-function parseDate(s){if(!s)return null;s=String(s).trim().replace(/\//g,'-').replace(/\./g,'-');const m=s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);if(!m)return null;return new Date(+m[1],+m[2]-1,+m[3])}
+const MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,sept:9,oct:10,nov:11,dec:12};
+function parseDate(s){
+  if(!s)return null;s=String(s).trim();if(!s)return null;
+  // 1) 英文月份：31 Mar 2026 / Mar 31, 2026 / 31-Mar-2026
+  let m=s.match(/(\d{1,2})[\s\-\/]*([A-Za-z]{3,4})[\s\-\/,]*(\d{4})/);
+  if(m&&MONTHS[m[2].toLowerCase()])return new Date(+m[3],MONTHS[m[2].toLowerCase()]-1,+m[1]);
+  m=s.match(/([A-Za-z]{3,4})[\s\-\/]*(\d{1,2})[\s\-\/,]*(\d{4})/);
+  if(m&&MONTHS[m[1].toLowerCase()])return new Date(+m[3],MONTHS[m[1].toLowerCase()]-1,+m[2]);
+  const p=s.replace(/[.]/g,'/').replace(/-/g,'/').split('/').map(x=>x.trim()).filter(x=>x!=='');
+  if(p.length>=3){
+    // 年在前：YYYY/MM/DD
+    if(p[0].length===4)return new Date(+p[0],(+p[1]||1)-1,+p[2]||1);
+    // 年在后：默认 DD/MM/YYYY（马来西亚会计软件常用）；首段>12 时必为日
+    let d=+p[0],mo=+p[1],y=+p[2];if(y<100)y+=2000;
+    if(mo>12&&d<=12){const t=d;d=mo;mo=t;} // 反过来是 MM/DD 就纠正
+    if(!d||!mo||!y)return null;return new Date(y,mo-1,d);
+  }
+  return null;
+}
 function fmtD(d){if(!d)return'—';return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function num(x){const n=parseFloat(String(x).replace(/RM/ig,'').replace(/[,¥$，\s]/g,''));return isNaN(n)?0:n}
 function money(n){return (n<0?'-':'')+'RM '+Math.abs(Math.round(n)).toLocaleString()}
@@ -347,10 +366,34 @@ function parsePaste(){
   pendingRows={headers,body};
   renderMapping(headers);
 }
-function guess(headers,keys){for(let i=0;i<headers.length;i++){const h=headers[i].toLowerCase();if(keys.some(k=>h.includes(k)))return i}return -1}
+// 列名打分：精确相等 > 开头/结尾 > 包含。权重用来在同义词里排优先级
+const FIELD_SPECS={
+  customer:[['客户名称',9],['客户',7],['公司名称',7],['公司',5],['往来单位',7],['往来',5],['名称',3],['debtorname',9],['debtor',7],['customername',9],['customer',7],['clientname',8],['client',6],['companyname',8],['company',6],['accountname',7],['account',4],['name',4]],
+  invoice:[['发票号',9],['发票号码',9],['发票',6],['单据号',8],['单号',7],['票号',7],['编号',4],['invoiceno',9],['invoicenumber',9],['invoice',6],['invno',8],['docno',8],['documentno',8],['billno',8],['refno',7],['reference',5],['doc',3],['no',2]],
+  due:[['付款到期日',10],['到期日',9],['到期',7],['duedate',10],['datedue',10],['due',7],['maturitydate',9],['maturity',7],['paymentdue',9],['termdate',7]],
+  date:[['开票日期',8],['开票日',8],['开票',6],['发票日期',8],['单据日期',7],['出单日期',7],['日期',3],['invoicedate',9],['docdate',8],['documentdate',8],['billdate',8],['issuedate',8],['transdate',7],['date',3]],
+  amount:[['发票金额',9],['应收金额',9],['应收',6],['总金额',8],['金额',6],['总额',7],['invoiceamount',9],['totalamount',9],['grandtotal',9],['nettotal',8],['netamount',8],['amount',6],['total',6]],
+  paid:[['已收金额',9],['已收',7],['已付金额',9],['已付',7],['收款',6],['已结',6],['paidamount',9],['amountpaid',9],['paid',7],['receivedamount',9],['received',7],['payment',5],['settled',6]],
+  outstanding:[['未收金额',9],['未收',8],['结欠',8],['余额',7],['欠款',7],['outstandingamount',10],['outstanding',9],['balancedue',10],['balance',8],['amountdue',9],['owing',7]],
+  phone:[['联系电话',9],['联络电话',9],['手机号',9],['手机',7],['电话',6],['联系方式',6],['号码',4],['whatsapp',10],['wa',5],['mobileno',9],['mobile',7],['phoneno',9],['phone',7],['contactno',8],['contact',5],['tel',5]]
+};
+function normH(h){return String(h||'').toLowerCase().replace(/[\s_\-\/().（）:：#*]/g,'')}
+function scoreHeader(h,spec){h=normH(h);if(!h)return 0;let best=0;for(const[pat,w]of spec){const p=normH(pat);if(!p)continue;if(h===p)best=Math.max(best,w+100);else if(h.startsWith(p)||h.endsWith(p))best=Math.max(best,w+50);else if(h.includes(p))best=Math.max(best,w+20);}return best}
+// 贪心分配：全表最高分的(字段,列)先占，避免两个字段抢同一列
+function guessAll(headers){
+  const fields=Object.keys(FIELD_SPECS),cells=[];
+  headers.forEach((h,ci)=>fields.forEach(f=>{const s=scoreHeader(h,FIELD_SPECS[f]);if(s>0)cells.push([s,f,ci])}));
+  cells.sort((a,b)=>b[0]-a[0]);
+  const res={},usedCol=new Set();
+  for(const[,f,ci]of cells){if(res[f]!==undefined||usedCol.has(ci))continue;res[f]=ci;usedCol.add(ci)}
+  fields.forEach(f=>{if(res[f]===undefined)res[f]=-1});
+  return res;
+}
 function renderMapping(headers){
   const opts=idx=>headers.map((h,i)=>`<option value="${i}" ${i===idx?'selected':''}>${h||'第'+(i+1)+'列'}</option>`).join('');
-  const g={customer:guess(headers,['客户','公司','名称','name','customer','client']),invoice:guess(headers,['发票','单号','invoice','no','编号']),due:guess(headers,['到期','due']),date:guess(headers,['开票','日期','date']),amount:guess(headers,['金额','应收','总额','amount','total']),paid:guess(headers,['已收','已付','paid','received']),phone:guess(headers,['电话','手机','联系','号码','phone','tel','contact','whatsapp','wa'])};
+  const g=guessAll(headers);
+  // 若没有「毛额」列，但有「未收/Outstanding」列：用它当金额（已收默认0，未收=金额）
+  if(g.amount<0&&g.outstanding>=0){g.amount=g.outstanding;g.paid=-1;}
   document.getElementById('mapArea').innerHTML=`
     <div class="hint" style="margin-top:16px">已自动识别列，请确认后导入（钱不能错，务必核对）：</div>
     <div class="map">
