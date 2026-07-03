@@ -95,6 +95,36 @@
   .copy{text-align:center;margin-top:20px;font-size:14px;color:var(--gold)}
   .copy b{color:var(--white);font-weight:700}
   .copy .sub{display:block;margin-top:6px;font-size:11.5px;color:var(--muted);letter-spacing:.2em}
+  /* ---- 老板体检区 ---- */
+  .boss{background:linear-gradient(180deg,rgba(189,175,148,.06),rgba(255,255,255,.02));border:1px solid var(--gold);border-radius:16px;padding:22px 24px;margin-bottom:22px}
+  .boss-cap{font-family:var(--font-latin);color:var(--gold);font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .boss-hero{display:flex;gap:15px;align-items:flex-start;padding:18px 20px;border-radius:12px;border:1px solid}
+  .boss-hero.red{background:rgba(232,107,87,.10);border-color:rgba(232,107,87,.42)}
+  .boss-hero.amber{background:rgba(224,165,58,.10);border-color:rgba(224,165,58,.42)}
+  .boss-hero.green{background:rgba(79,190,134,.10);border-color:rgba(79,190,134,.42)}
+  .boss-dot{width:15px;height:15px;border-radius:50%;margin-top:5px;flex:none}
+  .boss-lead{font-weight:700;font-size:15px;margin-bottom:7px}
+  .boss-line{font-size:14.5px;line-height:1.75;color:rgba(255,255,255,.9)}
+  .boss-line b{color:var(--white);font-family:var(--font-latin)}
+  .boss-sub{margin-top:10px;color:var(--gold);font-size:13px}
+  .boss-sub b{color:var(--white)}
+  .b3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:16px}
+  .bcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px 16px}
+  .bcard .bt{color:var(--gold);font-size:12px;letter-spacing:.06em;margin-bottom:10px;font-weight:600}
+  .bignum{font-family:var(--font-latin);font-size:24px;font-weight:700}
+  .bsub{color:var(--muted);font-size:12px;margin-top:4px;line-height:1.6}
+  .bar{height:8px;border-radius:5px;background:rgba(255,255,255,.09);overflow:hidden;margin:8px 0 4px}
+  .bar>span{display:block;height:100%;border-radius:5px}
+  .tl-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:5px 0;gap:10px}
+  .tl-row .amt{font-family:var(--font-latin);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tl-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .acts{margin-top:16px}
+  .act-row{display:flex;gap:12px;align-items:center;padding:10px 2px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+  .act-row:last-child{border-bottom:none}
+  .act-cust{font-weight:600;min-width:0;flex:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act-amt{flex:1;font-family:var(--font-latin);font-variant-numeric:tabular-nums;color:var(--gold);white-space:nowrap}
+  .act-do{flex:2.4;color:rgba(255,255,255,.78)}
+  @media(max-width:820px){.b3{grid-template-columns:1fr}.act-row{flex-wrap:wrap;gap:6px}}
 </style>
 </head>
 <body>
@@ -115,6 +145,8 @@
   </header>
 
   <div class="cards" id="cards"></div>
+
+  <div id="bossPanel"></div>
 
   <div class="panel">
     <h2>① 导入应收账款表</h2>
@@ -254,6 +286,98 @@ function healthFromOd(od){if(od<=0)return{k:'green',t:'健康',c:'g'};if(od<=60)
 function health(rec){if(unpaid(rec)<=0)return{k:'paid',t:'已结清',c:'g'};return healthFromOd(overdueDays(rec))}
 const FMAP={red:'r',amber:'a',green:'g'};
 function aging(od){if(od<=0)return'未到期';if(od<=30)return'1-30天';if(od<=60)return'31-60天';if(od<=90)return'61-90天';return'90天以上'}
+
+// ---- 老板体检区：现金体检 + 坏账预估 + 集中度 + 回收时间轴 + 行动建议 ----
+function pct(x){return Math.round(x*100)+'%'}
+// 按逾期区间的坏账概率（经验值，非排序系数）
+function badProb(od){if(od<=0)return 0;if(od<=30)return .02;if(od<=60)return .10;if(od<=90)return .25;return .50}
+// 按客户汇总未收
+function custAgg(){
+  const m={};
+  DB.records.forEach(r=>{const up=unpaid(r);if(up<=0)return;const c=(r.customer||'').trim()||'(未命名)';
+    if(!m[c])m[c]={customer:c,unpaid:0,worstOd:-1e9,priority:0};
+    m[c].unpaid+=up;m[c].worstOd=Math.max(m[c].worstOd,overdueDays(r));m[c].priority+=priority(r);});
+  return Object.values(m);
+}
+function actionFor(od){
+  if(od<=0)return{c:'g',t:'尚未到期',todo:'到期前 2-3 天发一句温和提醒即可'};
+  if(od<=30)return{c:'a',t:'轻微逾期',todo:'WhatsApp / 电话温和提醒，确认付款日'};
+  if(od<=60)return{c:'a',t:'明显逾期',todo:'正式催款，要客户书面承诺付款日期'};
+  if(od<=90)return{c:'r',t:'严重逾期',todo:'发正式催款函，暂停后续供货 / 服务'};
+  return{c:'r',t:'高风险',todo:'管理层介入，考虑法律途径或委外催收'};
+}
+function renderBoss(){
+  const el=document.getElementById('bossPanel');if(!el)return;
+  const recs=DB.records.filter(r=>unpaid(r)>0);
+  if(recs.length<1){el.innerHTML='';return}
+  const total=recs.reduce((s,r)=>s+unpaid(r),0);
+  const overdue=recs.filter(r=>overdueDays(r)>0).reduce((s,r)=>s+unpaid(r),0);
+  const opct=total?overdue/total:0;
+  const bad=recs.reduce((s,r)=>s+unpaid(r)*badProb(overdueDays(r)),0);
+  const bpct=total?bad/total:0;
+  // 总体红黄绿
+  let lv;if(opct>=.4||bpct>=.15)lv='red';else if(opct>=.15)lv='amber';else lv='green';
+  const lead={red:'⚠️ 现金流吃紧，今天就要动手催',amber:'🟡 有一部分钱开始拖，要盯紧',green:'🟢 整体健康，按节奏收就好'}[lv];
+  // 先催谁 top3
+  const byPri=custAgg().sort((a,b)=>b.priority-a.priority||b.unpaid-a.unpaid);
+  const top3=byPri.filter(c=>c.worstOd>0).slice(0,3).map(c=>c.customer);
+  // 集中度
+  const byMoney=custAgg().sort((a,b)=>b.unpaid-a.unpaid);
+  const t1=byMoney[0]||{customer:'—',unpaid:0};
+  const t1pct=total?t1.unpaid/total:0;
+  const t3pct=total?byMoney.slice(0,3).reduce((s,c)=>s+c.unpaid,0)/total:0;
+  let clv,ctext;if(t1pct>=.4){clv='r';ctext='过度依赖单一大客户，风险高';}else if(t3pct>=.6){clv='a';ctext='收入集中在少数几家，需留意';}else{clv='g';ctext='客户较分散，风险可控';}
+  // 回收时间轴
+  const tl={overdue:0,d7:0,d30:0,d60:0,d60p:0};
+  recs.forEach(r=>{const od=overdueDays(r),up=unpaid(r);if(od>0){tl.overdue+=up;return;}const fut=-od;if(fut<=7)tl.d7+=up;else if(fut<=30)tl.d30+=up;else if(fut<=60)tl.d60+=up;else tl.d60p+=up;});
+  const tlrows=[
+    ['r','已逾期 · 早该收回',tl.overdue],
+    ['a','未来 7 天内到期',tl.d7],
+    ['a','未来 8-30 天到期',tl.d30],
+    ['g','未来 31-60 天到期',tl.d60],
+    ['g','60 天以后到期',tl.d60p]
+  ].filter(x=>x[2]>0);
+  const maxTl=Math.max(1,...tlrows.map(x=>x[2]));
+  const COL={r:'var(--red)',a:'var(--amber)',g:'var(--ok)'};
+  // 行动清单 top8
+  const acts=byPri.slice(0,8);
+  const moreN=byPri.length-acts.length;
+
+  el.innerHTML=`
+  <div class="panel boss">
+    <div class="boss-cap">📋 老板一眼看懂 · 现金体检</div>
+    <div class="boss-hero ${lv}">
+      <span class="boss-dot ${FMAP[lv]}"></span>
+      <div style="flex:1">
+        <div class="boss-lead">${lead}</div>
+        <div class="boss-line">你有 <b>${money(total)}</b> 卡在外面还没收回，其中 <b>${money(overdue)}</b>（${pct(opct)}）已经逾期；按逾期经验预估，约有 <b>${money(bad)}</b> 存在收不回的风险。</div>
+        ${top3.length?`<div class="boss-sub">👉 今天最该催：<b>${top3.join('、')}</b></div>`:''}
+      </div>
+    </div>
+    <div class="b3">
+      <div class="bcard">
+        <div class="bt">💸 预估坏账风险</div>
+        <div class="bignum" style="color:var(--red)">${money(bad)}</div>
+        <div class="bsub">占总应收 <b style="color:#fff">${pct(bpct)}</b>。这是按各逾期区间的经验坏账率估算的「可能收不回」金额——越早催，能救回越多。</div>
+      </div>
+      <div class="bcard">
+        <div class="bt">🎯 客户集中度</div>
+        <div class="bignum">${pct(t1pct)} <span style="font-size:13px;color:var(--muted);font-weight:400">来自最大客户</span></div>
+        <div class="bar"><span style="width:${Math.min(100,t1pct*100)}%;background:var(--gold)"></span></div>
+        <div class="bsub">最大客户 <b style="color:#fff">${t1.customer}</b> 占 ${pct(t1pct)}，前三大合计 ${pct(t3pct)}。<span class="tag ${clv}" style="margin-left:2px">${ctext}</span></div>
+      </div>
+      <div class="bcard">
+        <div class="bt">⏳ 现金回收时间轴</div>
+        ${tlrows.map(([c,l,v])=>`<div class="tl-row"><span><span class="tl-dot" style="background:${COL[c]}"></span>${l}</span><span class="amt">${money(v)}</span></div><div class="bar" style="margin-top:0"><span style="width:${Math.max(4,v/maxTl*100)}%;background:${COL[c]}"></span></div>`).join('')||'<div class="bsub">暂无未收款。</div>'}
+      </div>
+    </div>
+    <div class="acts">
+      <div class="bt" style="color:var(--gold);font-size:12px;font-weight:600;margin-bottom:2px">✅ 每家该怎么做（按优先级排）</div>
+      ${acts.map(c=>{const a=actionFor(c.worstOd);const odTxt=c.worstOd>0?`逾期 ${c.worstOd} 天`:'未到期';return `<div class="act-row"><span class="act-cust">${c.customer}</span><span class="act-amt">${money(c.unpaid)}</span><span class="tag ${a.c}" style="flex:none">${a.t}·${odTxt}</span><span class="act-do">${a.todo}</span></div>`}).join('')}
+      ${moreN>0?`<div class="bsub" style="margin-top:8px">…另有 ${moreN} 家未收客户，详见下方催收雷达清单。</div>`:''}
+    </div>
+  </div>`;
+}
 
 function renderCards(){
   const recs=DB.records;
@@ -708,7 +832,7 @@ function copyMsg(b){
 }
 function fallbackCopy(txt,cb){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta);cb&&cb()}
 
-function renderAll(){renderCards();renderCoef();renderViewTabs();renderFilters();renderTable()}
+function renderAll(){renderCards();renderBoss();renderCoef();renderViewTabs();renderFilters();renderTable()}
 renderAll();
 </script>
 </body>
