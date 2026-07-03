@@ -125,6 +125,27 @@
   .act-amt{flex:1;font-family:var(--font-latin);font-variant-numeric:tabular-nums;color:var(--gold);white-space:nowrap}
   .act-do{flex:2.4;color:rgba(255,255,255,.78)}
   @media(max-width:820px){.b3{grid-template-columns:1fr}.act-row{flex-wrap:wrap;gap:6px}}
+  /* DSO 平均收款天数 */
+  .dso{display:flex;align-items:center;gap:24px;background:var(--surface);border:1px solid var(--line);
+    border-radius:16px;padding:20px 26px;margin-bottom:26px}
+  .dso-l{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:150px;
+    padding-right:24px;border-right:1px solid var(--hair)}
+  .dso-num{font-family:var(--font-latin);font-size:46px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .dso-unit{font-family:var(--font-latin);font-size:14px;color:rgba(255,255,255,.55);margin-top:6px;letter-spacing:.05em}
+  .dso.good .dso-num{color:var(--green-lt,#4FBE86)}
+  .dso.warn .dso-num{color:var(--amber)}
+  .dso.bad .dso-num{color:var(--red)}
+  .dso-r{flex:1}
+  .dso-cap{color:var(--gold);font-size:12px;letter-spacing:.08em;margin-bottom:8px}
+  .dso-cap b{color:#fff;font-weight:600}
+  .dso-lead{font-size:16px;font-weight:600;color:#fff;margin-bottom:6px}
+  .dso-sub{font-size:13.5px;color:rgba(255,255,255,.72);line-height:1.55}
+  .dso-tag{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;margin-left:8px;vertical-align:middle}
+  .dso.good .dso-tag{background:rgba(79,190,134,.16);color:#7fd6a4}
+  .dso.warn .dso-tag{background:rgba(224,165,58,.16);color:#e6bd6a}
+  .dso.bad .dso-tag{background:rgba(232,107,87,.16);color:#f0917f}
+  @media(max-width:640px){.dso{flex-direction:column;gap:14px;text-align:center}
+    .dso-l{border-right:none;border-bottom:1px solid var(--hair);padding-right:0;padding-bottom:14px;width:100%}}
   /* tab navigation */
   .tabbar{display:flex;gap:8px;margin:0 0 22px;flex-wrap:wrap;justify-content:center}
   .tab{appearance:none;border:1px solid var(--hair);background:rgba(255,255,255,.04);color:rgba(255,255,255,.72);
@@ -166,6 +187,7 @@
   <!-- 页1：老板看板 -->
   <section class="page active" id="page-dashboard">
     <div class="cards" id="cards"></div>
+    <div id="dsoCard"></div>
     <div id="bossPanel"></div>
   </section>
 
@@ -421,6 +443,44 @@ function renderCards(){
     <div class="card bad"><div class="lbl">预计坏账（逾期90天+）</div><div class="val sm">${money(bad)}</div></div>`;
 }
 
+// DSO 平均收款天数：每一块未收款「在外面躺了几天」，按金额加权
+const ASSUME_TERM=30; // 没有开票日时，假设账期30天从到期日倒推
+function renderDSO(){
+  const el=document.getElementById('dsoCard');if(!el)return;
+  const recs=DB.records.filter(r=>unpaid(r)>0);
+  if(!recs.length){el.innerHTML='';return}
+  let wsum=0,amt=0,estimated=false,covered=0;
+  recs.forEach(r=>{
+    const u=unpaid(r);
+    const iss=parseDate(r.issue);
+    let start;
+    if(iss){start=iss}
+    else{const due=parseDate(r.due);if(due){const x=new Date(due);x.setDate(due.getDate()-ASSUME_TERM);start=x;estimated=true}}
+    if(!start)return;
+    const days=Math.max(0,daysBetween(todayD(),start));
+    wsum+=u*days;amt+=u;covered+=u;
+  });
+  if(amt<=0){el.innerHTML='';return}
+  const dso=Math.round(wsum/amt);
+  let lv,tag,lead;
+  if(dso<=45){lv='good';tag='健康';lead='回款速度不错，现金没被压太久。'}
+  else if(dso<=75){lv='warn';tag='偏慢';lead='钱在客户口袋里躺得有点久了，要盯紧催收。'}
+  else{lv='bad';tag='太慢';lead='回款明显过慢，大量现金被占用——优先追这批账。'}
+  const note=estimated?'（部分单缺开票日，按 '+ASSUME_TERM+' 天账期估算）':'（按开票日精确计算）';
+  el.innerHTML=`
+    <div class="dso ${lv}">
+      <div class="dso-l">
+        <div class="dso-num">${dso}</div>
+        <div class="dso-unit">天 · DSO</div>
+      </div>
+      <div class="dso-r">
+        <div class="dso-cap">平均收款天数 · <b>DSO</b><span class="dso-tag">${tag}</span></div>
+        <div class="dso-lead">${lead}</div>
+        <div class="dso-sub">一笔货卖出去，平均要 <b style="color:var(--gold)">${dso} 天</b>才收得回钱。账期通常 30 天，超得越多、现金被占越久。${note}</div>
+      </div>
+    </div>`;
+}
+
 function renderCoef(){
   const c=DB.coef;const fields=[['t0','未到期'],['t30','1-30天'],['t60','31-60天'],['t90','61-90天'],['t90p','90天以上']];
   document.getElementById('coGrid').innerHTML=fields.map(([k,l])=>
@@ -656,6 +716,7 @@ function renderMapping(){
       <div class="map">
         <div><label>客户 *</label>${sel(g.customer,false).replace('__ID__','m_customer')}</div>
         <div><label>发票号（可选）</label>${sel(g.invoice,true).replace('__ID__','m_invoice')}</div>
+        <div><label>开票日（可选，算收款天数用）</label>${sel(g.date,true).replace('__ID__','m_date')}</div>
         <div><label>到期日 *</label>${sel(g.due,false).replace('__ID__','m_due')}</div>
         <div><label>金额 *</label>${sel(g.amount,false).replace('__ID__','m_amount')}</div>
         <div><label>已收（可选，默认0）</label>${sel(g.paid,true).replace('__ID__','m_paid')}</div>
@@ -683,10 +744,10 @@ function doImport(){
       if(phi>=0){const ph=(r[phi]||'').trim();if(ph)DB.contacts[cust]=ph}
     });
   }else{
-    const ii=gi('m_invoice'),di=gi('m_due'),ai=gi('m_amount'),pi=gi('m_paid');
+    const ii=gi('m_invoice'),di=gi('m_due'),ai=gi('m_amount'),pi=gi('m_paid'),xi=gi('m_date');
     pendingRows.body.forEach(r=>{
       const cust=(r[ci]||'').trim();if(isTotalRow(r,ci)||(!cust&&!num(r[ai])))return;
-      added.push({customer:cust,invoice:ii>=0?(r[ii]||''):'',due:r[di]||'',amount:num(r[ai]),paid:pi>=0?num(r[pi]):0});
+      added.push({customer:cust,invoice:ii>=0?(r[ii]||''):'',issue:xi>=0?(r[xi]||''):'',due:r[di]||'',amount:num(r[ai]),paid:pi>=0?num(r[pi]):0});
       if(phi>=0){const ph=(r[phi]||'').trim();if(cust&&ph)DB.contacts[cust]=ph}
     });
   }
@@ -860,7 +921,7 @@ function copyMsg(b){
 }
 function fallbackCopy(txt,cb){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(ta);cb&&cb()}
 
-function renderAll(){renderCards();renderBoss();renderCoef();renderViewTabs();renderFilters();renderTable()}
+function renderAll(){renderCards();renderDSO();renderBoss();renderCoef();renderViewTabs();renderFilters();renderTable()}
 function switchPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+name));
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.page===name));
