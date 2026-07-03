@@ -118,8 +118,8 @@
 
   <div class="panel">
     <h2>① 导入应收账款表</h2>
-    <div class="muted">直接从 Excel / 会计软件导出的账龄表复制整块数据（<b>含表头</b>）粘贴到下方，或点"载入示例"看效果。表里有很多杂列也没关系——系统会<b>自动认列</b>，中英文表头都行（SQL Account / AutoCount / Xero / QuickBooks 皆可）。</div>
-    <div class="hint" style="margin-top:6px">必需：<b>客户</b> · <b>到期日</b> · <b>金额</b>（或「未收 / Outstanding」）。可选：发票号 · 已收 · WhatsApp电话。识别不准可在下方手动改，钱不能错——务必核对。</div>
+    <div class="muted">直接上传会计软件导出的整份 Excel 就行——就算里面有很多张工作表(P&L、资产负债表…)，系统会<b>自动找出应收账款那一张</b>并跳过标题行；中英文表头、SQL Account / AutoCount / Xero / QuickBooks 都能认。也可复制数据粘贴到下方框。</div>
+    <div class="hint" style="margin-top:6px">两种表都支持：① <b>明细表</b>（客户+到期日+金额）；② <b>账龄分桶表</b>（客户 + Current/1-30/31-60/61-90/&gt;90，无需到期日）。识别后会让你确认一眼，钱不能错——务必核对。</div>
     <textarea id="paste" placeholder="客户	发票号	开票日	到期日	金额	已收
 鱼丸豆腐		INV-001	2026-04-10	2026-05-10	50000	0
 ..."></textarea>
@@ -212,7 +212,7 @@ if(!DB.contacts)DB.contacts={};
 let FILTER='all';
 let VIEW='invoice';
 let CUSTLIST=[];
-let pendingRows=null;
+let pendingRows=null;let pendingSheets=null;
 let curMsgCustomer=null, curTone='standard';
 let APIKEY=localStorage.getItem('ar_apikey')||'';
 
@@ -369,14 +369,18 @@ function parsePaste(){
   ingestRows(rows);
 }
 // 把二维数组交给映射流程（粘贴与文件上传共用）
-function ingestRows(rows){
+function ingestRows(rows,sheetIdx){
   rows=(rows||[]).map(r=>r.map(c=>String(c==null?'':c).trim())).filter(r=>r.some(c=>c!==''));
   if(rows.length<2){alert('没读到数据：至少要「表头 + 1 行」');return}
-  pendingRows={headers:rows[0],body:rows.slice(1)};
-  renderMapping(rows[0]);
+  const hi=findHeaderRow(rows);           // 自动跳过标题/说明行，找真正的表头
+  const headers=rows[hi];
+  const body=rows.slice(hi+1).filter(r=>r.some(c=>c!==''));
+  pendingRows={headers,body,buckets:findBuckets(headers),sheetIdx};
+  renderMapping();
   const el=document.getElementById('mapArea');if(el)el.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 // 上传 Excel / CSV 文件
+function cellStr(c){return c instanceof Date?fmtD(new Date(c.getTime()-c.getTimezoneOffset()*60000)):String(c==null?'':c)}
 function handleFile(input){
   const f=input.files&&input.files[0];if(!f){return}
   const name=f.name.toLowerCase();
@@ -385,25 +389,31 @@ function handleFile(input){
   reader.onerror=()=>alert('文件读取失败，请重试');
   reader.onload=e=>{
     try{
-      let rows;
       if(isText){
         const text=String(e.target.result||'');
         const delim=text.includes('\t')?'\t':',';
-        rows=text.split(/\r?\n/).map(l=>l.split(delim).map(c=>c.trim().replace(/^"|"$/g,'')));
-      }else{
-        if(typeof XLSX==='undefined'){alert('Excel 解析库没加载成功（可能是网络问题）。请刷新页面重试，或改用「复制粘贴 + 解析粘贴内容」。');return}
-        const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        // raw:true 保留真实日期为 Date 对象，避免被格式化成有歧义的 M/D/Y 字符串
-        const raw=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,cellDates:true,defval:''});
-        rows=raw.map(r=>r.map(c=>c instanceof Date?fmtD(new Date(c.getTime()-c.getTimezoneOffset()*60000)):c));
+        const rows=text.split(/\r?\n/).map(l=>l.split(delim).map(c=>c.trim().replace(/^"|"$/g,'')));
+        pendingSheets=null;ingestRows(rows);
+        return;
       }
-      ingestRows(rows);
+      if(typeof XLSX==='undefined'){alert('Excel 解析库没加载成功（可能是网络问题）。请刷新页面重试，或改用「复制粘贴 + 解析粘贴内容」。');return}
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      // 多工作表：全部读进来，自动挑最像应收账款的一张（AP/应付会被排除）
+      const sheets=wb.SheetNames.map(nm=>{
+        const raw=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,cellDates:true,defval:''});
+        return {name:nm,rows:raw.map(r=>r.map(cellStr))};
+      }).filter(s=>s.rows.some(r=>r.some(c=>String(c).trim()!=='')));
+      if(!sheets.length){alert('这个文件里没读到任何数据');return}
+      pendingSheets=sheets;
+      ingestSheet(pickBestSheet(sheets));
     }catch(err){alert('解析失败：'+(err&&err.message||err))}
   };
   if(isText)reader.readAsText(f,'utf-8');else reader.readAsArrayBuffer(f);
   input.value='';
 }
+// 选定某张工作表并进入映射流程
+function ingestSheet(idx){const sh=pendingSheets[idx];ingestRows(sh.rows,idx);}
+function switchSheet(v){ingestSheet(parseInt(v));}
 // 列名打分：精确相等 > 开头/结尾 > 包含。权重用来在同义词里排优先级
 const FIELD_SPECS={
   customer:[['客户名称',9],['客户',7],['公司名称',7],['公司',5],['往来单位',7],['往来',5],['名称',3],['debtorname',9],['debtor',7],['customername',9],['customer',7],['clientname',8],['client',6],['companyname',8],['company',6],['accountname',7],['account',4],['name',4]],
@@ -427,33 +437,113 @@ function guessAll(headers){
   fields.forEach(f=>{if(res[f]===undefined)res[f]=-1});
   return res;
 }
-function renderMapping(headers){
+// ---- 账龄分桶列识别（Current / 1-30 / 31-60 / 61-90 / >90）----
+function bucketOf(h){
+  const s=String(h||'').toLowerCase().replace(/\s/g,'');const dg=s.replace(/[^0-9]/g,'');
+  if(/current|notdue|未到期|未逾期|当期/.test(s))return 'cur';
+  if(/(>|≥|over|above|greater|more|plus|超过|超出)/.test(s)&&/90/.test(s))return 'b90p';
+  if(dg==='130'||/1[-–to]*30/.test(s))return 'b30';
+  if(dg==='3160'||/31[-–to]*60/.test(s))return 'b60';
+  if(dg==='6190'||/61[-–to]*90/.test(s))return 'b90';
+  if(dg==='90'&&/[>+]/.test(s)||/90\+|>90|90以上|90天以上/.test(s))return 'b90p';
+  return null;
+}
+function findBuckets(headers){const b={};(headers||[]).forEach((h,i)=>{const k=bucketOf(h);if(k&&b[k]===undefined)b[k]=i});return b}
+// ---- 表头行识别：在前 15 行里挑「最像表头」的一行，跳过标题/说明行 ----
+function rowHeaderScore(row){
+  let s=0;(row||[]).forEach(c=>{
+    if(!String(c).trim())return;
+    if(bucketOf(c)){s+=3;return}
+    let best=0;for(const f in FIELD_SPECS){const sc=scoreHeader(c,FIELD_SPECS[f]);if(sc>best)best=sc}
+    if(best>=120)s+=2;else if(best>=50)s+=1;
+  });
+  return s;
+}
+function findHeaderRow(rows){let bi=0,bs=-1;const lim=Math.min(rows.length,15);for(let i=0;i<lim;i++){const sc=rowHeaderScore(rows[i]);if(sc>bs){bs=sc;bi=i}}return bi}
+// ---- 多工作表：挑最像应收账款的一张（排除应付/AP）----
+function sheetScore(sh){
+  const n=String(sh.name||'').toLowerCase();let s=0;
+  if(/payable|应付|供应商|supplier|(^|[^a-z])ap([^a-z]|$)/.test(n))s-=100;   // 应付账款：排除
+  if(/receiv|aging|ageing|应收|账龄|debtor|(^|[^a-z])ar([^a-z]|$)/.test(n))s+=60;
+  if(/(^|[^a-z])(pl|p&l|profit|loss|balance|cashflow|cash\s*flow|资产|负债|损益|现金流|employee|payroll|员工|supplier|product|sku|stock|库存)/.test(n))s-=30;
+  const hi=findHeaderRow(sh.rows);const hdr=sh.rows[hi]||[];
+  const g=guessAll(hdr);const bk=findBuckets(hdr);
+  if(g.customer>=0)s+=15;if(g.due>=0)s+=12;if(g.amount>=0||g.outstanding>=0)s+=10;
+  s+=Object.keys(bk).length*8;
+  return s;
+}
+function pickBestSheet(sheets){let bi=0,bs=-1e9;sheets.forEach((sh,i)=>{const sc=sheetScore(sh);if(sc>bs){bs=sc;bi=i}});return bi}
+function sheetSelectorHTML(){
+  if(!pendingSheets||pendingSheets.length<2)return '';
+  const opts=pendingSheets.map((s,i)=>`<option value="${i}" ${i===pendingRows.sheetIdx?'selected':''}>${s.name}</option>`).join('');
+  return `<div style="margin-top:16px"><label style="color:var(--gold);font-size:12px;display:block;margin-bottom:4px">工作表（已自动选中最像应收账款的一张，可切换）</label><select style="max-width:340px" onchange="switchSheet(this.value)">${opts}</select></div>`;
+}
+function renderMapping(){
+  const headers=pendingRows.headers;
   const opts=idx=>headers.map((h,i)=>`<option value="${i}" ${i===idx?'selected':''}>${h||'第'+(i+1)+'列'}</option>`).join('');
   const g=guessAll(headers);
-  // 若没有「毛额」列，但有「未收/Outstanding」列：用它当金额（已收默认0，未收=金额）
-  if(g.amount<0&&g.outstanding>=0){g.amount=g.outstanding;g.paid=-1;}
-  document.getElementById('mapArea').innerHTML=`
-    <div class="hint" style="margin-top:16px">已自动识别列，请确认后导入（钱不能错，务必核对）：</div>
-    <div class="map">
-      <div><label>客户</label><select id="m_customer">${opts(g.customer)}</select></div>
-      <div><label>发票号（可选）</label><select id="m_invoice"><option value="-1">无</option>${opts(g.invoice).replace(`value="${g.invoice}"`,`value="${g.invoice}" selected`)}</select></div>
-      <div><label>到期日 *</label><select id="m_due">${opts(g.due)}</select></div>
-      <div><label>金额 *</label><select id="m_amount">${opts(g.amount)}</select></div>
-      <div><label>已收（可选，默认0）</label><select id="m_paid"><option value="-1">无（默认0）</option>${opts(g.paid).replace(`value="${g.paid}"`,`value="${g.paid}" selected`)}</select></div>
-      <div><label>WhatsApp（可选）</label><select id="m_phone"><option value="-1">无</option>${opts(g.phone).replace(`value="${g.phone}"`,`value="${g.phone}" selected`)}</select></div>
-    </div>
-    <div class="row"><button onclick="doImport()">确认导入 ${pendingRows.body.length} 条</button></div>`;
+  const bk=pendingRows.buckets||{};const isAging=Object.keys(bk).length>=2;
+  const sel=(idx,none)=>none?`<select id="__ID__"><option value="-1">无</option>${opts(idx).replace(`value="${idx}"`,`value="${idx}" selected`)}</select>`:`<select id="__ID__">${opts(idx)}</select>`;
+  let body;
+  if(isAging){
+    // 账龄分桶格式：只需客户列，桶自动按逾期区间生成记录
+    const NAMES={cur:'未到期',b30:'1-30天',b60:'31-60天',b90:'61-90天',b90p:'90天以上'};
+    const found=Object.keys(bk).map(k=>NAMES[k]).join(' · ');
+    body=`
+      <div class="hint" style="margin-top:16px">✅ 已识别为<b style="color:var(--gold)">账龄分桶表</b>（${found}）——系统会按每个逾期区间自动生成催收记录，<b>无需到期日</b>。请确认「客户」列：</div>
+      <div class="map">
+        <div><label>客户 *</label>${sel(g.customer,false).replace('__ID__','m_customer')}</div>
+        <div><label>WhatsApp（可选）</label>${sel(g.phone,true).replace('__ID__','m_phone')}</div>
+      </div>
+      ${sheetSelectorHTML()}
+      <div class="row"><button onclick="doImport()">确认导入（${pendingRows.body.length} 个客户）</button></div>`;
+  }else{
+    // 若没有「毛额」列，但有「未收/Outstanding」列：用它当金额（已收默认0，未收=金额）
+    if(g.amount<0&&g.outstanding>=0){g.amount=g.outstanding;g.paid=-1;}
+    body=`
+      <div class="hint" style="margin-top:16px">已自动识别列，请确认后导入（钱不能错，务必核对）：</div>
+      <div class="map">
+        <div><label>客户 *</label>${sel(g.customer,false).replace('__ID__','m_customer')}</div>
+        <div><label>发票号（可选）</label>${sel(g.invoice,true).replace('__ID__','m_invoice')}</div>
+        <div><label>到期日 *</label>${sel(g.due,false).replace('__ID__','m_due')}</div>
+        <div><label>金额 *</label>${sel(g.amount,false).replace('__ID__','m_amount')}</div>
+        <div><label>已收（可选，默认0）</label>${sel(g.paid,true).replace('__ID__','m_paid')}</div>
+        <div><label>WhatsApp（可选）</label>${sel(g.phone,true).replace('__ID__','m_phone')}</div>
+      </div>
+      ${sheetSelectorHTML()}
+      <div class="row"><button onclick="doImport()">确认导入 ${pendingRows.body.length} 条</button></div>`;
+  }
+  document.getElementById('mapArea').innerHTML=body;
 }
+const TOTAL_RE=/^(total|grand\s*total|sub\s*total|合计|总计|小计|总额|共计)\b/i;
+function isTotalRow(r,ci){const c=String(r[ci]||'').trim();const c0=String(r[0]||'').trim();return TOTAL_RE.test(c)||TOTAL_RE.test(c0)}
 function doImport(){
-  const gi=id=>parseInt(document.getElementById(id).value);
-  const ci=gi('m_customer'),ii=gi('m_invoice'),di=gi('m_due'),ai=gi('m_amount'),pi=gi('m_paid'),phi=gi('m_phone');
-  const added=pendingRows.body.map(r=>({
-    customer:r[ci]||'',invoice:ii>=0?(r[ii]||''):'',due:r[di]||'',amount:num(r[ai]),paid:pi>=0?num(r[pi]):0
-  })).filter(r=>r.customer||r.amount);
-  if(phi>=0)pendingRows.body.forEach(r=>{const c=(r[ci]||'').trim(),ph=(r[phi]||'').trim();if(c&&ph)DB.contacts[c]=ph});
+  const gi=id=>{const el=document.getElementById(id);return el?parseInt(el.value):-1};
+  const ci=gi('m_customer'),phi=gi('m_phone');
+  const bk=pendingRows.buckets||{};const isAging=Object.keys(bk).length>=2;
+  let added=[];
+  if(isAging){
+    // 每个非零桶 → 一条合成记录，用「今天±偏移」的合成到期日落进对应账龄区间，复用整套引擎
+    const t=todayD();const d=off=>{const x=new Date(t);x.setDate(t.getDate()+off);return fmtD(x)};
+    const META={cur:['未到期',30],b30:['1-30天',-15],b60:['31-60天',-45],b90:['61-90天',-75],b90p:['90天以上',-105]};
+    pendingRows.body.forEach(r=>{
+      const cust=(r[ci]||'').trim();if(!cust||isTotalRow(r,ci))return;
+      for(const k in bk){const v=num(r[bk[k]]);if(v>0)added.push({customer:cust,invoice:'账龄·'+META[k][0],due:d(META[k][1]),amount:v,paid:0})}
+      if(phi>=0){const ph=(r[phi]||'').trim();if(ph)DB.contacts[cust]=ph}
+    });
+  }else{
+    const ii=gi('m_invoice'),di=gi('m_due'),ai=gi('m_amount'),pi=gi('m_paid');
+    pendingRows.body.forEach(r=>{
+      const cust=(r[ci]||'').trim();if(isTotalRow(r,ci)||(!cust&&!num(r[ai])))return;
+      added.push({customer:cust,invoice:ii>=0?(r[ii]||''):'',due:r[di]||'',amount:num(r[ai]),paid:pi>=0?num(r[pi]):0});
+      if(phi>=0){const ph=(r[phi]||'').trim();if(cust&&ph)DB.contacts[cust]=ph}
+    });
+  }
+  if(!added.length){alert('没有可导入的数据行，请检查上面的列映射是否选对了。');return}
   DB.records=DB.records.concat(added);save();
-  document.getElementById('paste').value='';document.getElementById('mapArea').innerHTML='';pendingRows=null;
+  document.getElementById('paste').value='';document.getElementById('mapArea').innerHTML='';pendingRows=null;pendingSheets=null;
   renderAll();
+  alert('已成功导入 '+added.length+' 条应收记录。');
 }
 
 function loadSample(){
